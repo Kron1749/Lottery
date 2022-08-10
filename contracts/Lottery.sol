@@ -9,6 +9,11 @@ import "@chainlink/contracts/src/v0.8/KeeperCompatible.sol";
 // Must be minimum deposit value
 // Lottery must happen every define time - 1 minute for example
 
+error Raffle__UpkeepNotNeeded(uint256 currentBalance, uint256 numPlayers, uint256 raffleState);
+error Raffle__TransferFailed();
+error Raffle__SendMoreToEnterRaffle();
+error Raffle__RaffleNotOpen();
+
 contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
     enum RaffleState {
         OPEN,
@@ -28,8 +33,7 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
     address private immutable s_owner;
 
     // Lottery variables
-    address[] public s_players;
-    mapping(address => uint256) public addressesDepositFunds;
+    address[] private s_players;
     uint256 public constant MINIMUM_VALUE = 100000000000000000;
     uint256 private immutable i_interval; // How often we need to do lottery,every 60 seconds
     uint256 public counter; // How much lotteries passed
@@ -62,10 +66,13 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
 
     // Lottery functions
     function enterTheLottery() public payable {
-        require(msg.value >= MINIMUM_VALUE, "Not enough eth");
-        require(s_lotteryState == RaffleState.OPEN, "Lottery must be open");
+        if (msg.value < MINIMUM_VALUE) {
+            revert Raffle__SendMoreToEnterRaffle();
+        }
+        if (s_lotteryState != RaffleState.OPEN) {
+            revert Raffle__RaffleNotOpen();
+        }
         s_players.push(msg.sender);
-        addressesDepositFunds[msg.sender] += msg.value;
     }
 
     function findTheWinner() public {
@@ -88,7 +95,7 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
         // if lottery has balance
         // if lottery is open
         bool timePassed = (block.timestamp - s_lastTimeStamp) > i_interval;
-        bool hass_Players = s_players.length > 1;
+        bool hass_Players = s_players.length > 0;
         bool lotteryState = RaffleState.OPEN == s_lotteryState;
         bool hasBalance = address(this).balance > 0;
         upkeepNeeded = (timePassed && hass_Players && lotteryState && hasBalance);
@@ -110,7 +117,10 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
         bytes calldata /* performData */
     ) external override {
         (bool upkeepNeeded, ) = checkUpkeep("");
-        if (!upkeepNeeded) {}
+        if (!upkeepNeeded) {
+            revert Raffle__UpkeepNotNeeded(address(this).balance, s_players.length, uint256(s_lotteryState));
+        }
+
         s_lotteryState = RaffleState.CALCULATING;
         s_requestId = COORDINATOR.requestRandomWords(
             i_gasLane,
@@ -119,5 +129,21 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
             i_callbackGasLimit,
             NUM_WORDS
         );
+    }
+
+    function getLotteryState() public view returns (RaffleState) {
+        return s_lotteryState;
+    }
+
+    function getMinimumValue() public pure returns (uint256) {
+        return MINIMUM_VALUE;
+    }
+
+    function getInterval() public view returns (uint256) {
+        return i_interval;
+    }
+
+    function getPlayer(uint256 index) public view returns (address) {
+        return s_players[index];
     }
 }

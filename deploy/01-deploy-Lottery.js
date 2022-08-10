@@ -46,4 +46,4 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
         await verify(lottery.address, arguments)
     }
 }
-module.exports.tags = ["all", "fundme"]
+module.exports.tags = ["all", "lottery"]
