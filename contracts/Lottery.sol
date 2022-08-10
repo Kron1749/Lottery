@@ -21,29 +21,27 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
     }
 
     // Chainlink variables
-    VRFCoordinatorV2Interface COORDINATOR;
-    address private immutable i_vrfCoordinator; //0x6168499c0cFfCaCD319c818142124B7A15E857ab
+    // VRFCoordinatorV2Interface COORDINATOR;
+    VRFCoordinatorV2Interface private immutable i_vrfCoordinator; //0x6168499c0cFfCaCD319c818142124B7A15E857ab
     uint64 private immutable i_subscriptionId; //10204
     uint32 private immutable i_callbackGasLimit; //100000;
     bytes32 private immutable i_gasLane; //0xd89b2bf150e3b9e13446986e571fb9cab24b13cea0a43ea20a6049a85cc807cc;
     uint16 private constant REQUEST_CONFIRMATIONS = 3;
     uint32 private constant NUM_WORDS = 1;
-    uint256[] public s_randomWords;
-    uint256 public s_requestId;
     address private immutable s_owner;
 
     // Lottery variables
-    address[] private s_players;
+    address payable[] private s_players;
     uint256 public constant MINIMUM_VALUE = 100000000000000000;
     uint256 private immutable i_interval; // How often we need to do lottery,every 60 seconds
     uint256 public counter; // How much lotteries passed
     uint256 private s_lastTimeStamp;
     RaffleState private s_lotteryState;
+    address private s_recentWinner;
 
-    modifier onlyOwner() {
-        require(msg.sender == s_owner);
-        _;
-    }
+    event RequestedRaffleWinner(uint256 indexed requestId);
+    event RaffleEnter(address indexed player);
+    event WinnerPicked(address indexed player);
 
     constructor(
         address vrfCoordinatorV2,
@@ -52,8 +50,9 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
         bytes32 gasLane, // Or KeyHash
         uint256 interval
     ) VRFConsumerBaseV2(vrfCoordinatorV2) {
-        COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinatorV2);
-        i_vrfCoordinator = vrfCoordinatorV2;
+        i_vrfCoordinator = VRFCoordinatorV2Interface(vrfCoordinatorV2);
+        // COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinatorV2);
+        // i_vrfCoordinator = vrfCoordinatorV2;
         i_subscriptionId = subscriptionId;
         s_owner = msg.sender;
         i_callbackGasLimit = callbackGasLimit;
@@ -72,7 +71,8 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
         if (s_lotteryState != RaffleState.OPEN) {
             revert Raffle__RaffleNotOpen();
         }
-        s_players.push(msg.sender);
+        s_players.push(payable(msg.sender));
+        emit RaffleEnter(msg.sender);
     }
 
     function checkUpkeep(
@@ -89,23 +89,12 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
         // Check if timePassed,if s_players are,
         // if lottery has balance
         // if lottery is open
-        bool timePassed = (block.timestamp - s_lastTimeStamp) > i_interval;
+        bool timePassed = ((block.timestamp - s_lastTimeStamp) > i_interval);
         bool hass_Players = s_players.length > 0;
         bool lotteryState = RaffleState.OPEN == s_lotteryState;
         bool hasBalance = address(this).balance > 0;
         upkeepNeeded = (timePassed && hass_Players && lotteryState && hasBalance);
         return (upkeepNeeded, "0x0");
-    }
-
-    function fulfillRandomWords(
-        uint256, /* requestId */
-        uint256[] memory randomWords
-    ) internal override {
-        uint256 winnerIndex = s_randomWords[0] % s_players.length;
-        s_players = new address payable[](0);
-        s_lotteryState = RaffleState.OPEN;
-        s_lastTimeStamp = block.timestamp;
-        payable(s_players[winnerIndex]).transfer(address(this).balance);
     }
 
     function performUpkeep(
@@ -117,13 +106,28 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
         }
 
         s_lotteryState = RaffleState.CALCULATING;
-        s_requestId = COORDINATOR.requestRandomWords(
+        uint256 requestId = i_vrfCoordinator.requestRandomWords(
             i_gasLane,
             i_subscriptionId,
             REQUEST_CONFIRMATIONS,
             i_callbackGasLimit,
             NUM_WORDS
         );
+        emit RequestedRaffleWinner(requestId);
+    }
+
+    function fulfillRandomWords(
+        uint256, /* requestId */
+        uint256[] memory randomWords
+    ) internal override {
+        uint256 winnerIndex = randomWords[0] % s_players.length;
+        address payable recentWinner = s_players[winnerIndex];
+        s_recentWinner = recentWinner;
+        s_players = new address payable[](0);
+        s_lotteryState = RaffleState.OPEN;
+        s_lastTimeStamp = block.timestamp;
+        payable(recentWinner).transfer(address(this).balance);
+        emit WinnerPicked(recentWinner);
     }
 
     function getLotteryState() public view returns (RaffleState) {
@@ -140,5 +144,17 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
 
     function getPlayer(uint256 index) public view returns (address) {
         return s_players[index];
+    }
+
+    function getLastTimeStamp() public view returns (uint256) {
+        return s_lastTimeStamp;
+    }
+
+    function getRecentWinner() public view returns (address) {
+        return s_recentWinner;
+    }
+
+    function getNumberOfPlayers() public view returns (uint256) {
+        return s_players.length;
     }
 }

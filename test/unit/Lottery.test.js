@@ -11,12 +11,15 @@ const { developmentChains } = require("../../helper-hardhat-config")
           let VRFCoordinatorV2Mock
           let lotteryEntranceFee
           let interval
+          let player
           beforeEach(async () => {
               accounts = await ethers.getSigners() // On local network will get 10 fake accounts
               deployer = (await getNamedAccounts()).deployer
+              player = accounts[1]
               await deployments.fixture(["mocks", "lottery"]) // This will deploy everything on our local network
               VRFCoordinatorV2Mock = await ethers.getContract("VRFCoordinatorV2Mock")
-              lottery = await ethers.getContract("Lottery") // Will get the recent deployment
+              lotteryContract = await ethers.getContract("Lottery") // Will get the recent deployment
+              lottery = lotteryContract.connect(player)
               lotteryEntranceFee = await lottery.getMinimumValue()
               interval = await lottery.getInterval()
           })
@@ -79,25 +82,76 @@ const { developmentChains } = require("../../helper-hardhat-config")
                   const { upkeepNeeded } = lottery.callStatic.checkUpkeep("0x")
                   assert.notEqual(upkeepNeeded, false)
               })
-              describe("PerformUpKeep", async () => {
-                  it("Runs if checkUpKeep is true", async () => {
-                      await lottery.enterTheLottery({ value: lotteryEntranceFee })
-                      await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
-                      await network.provider.request({ method: "evm_mine", params: [] })
+          })
+          describe("PerformUpKeep", async () => {
+              it("Runs if checkUpKeep is true", async () => {
+                  await lottery.enterTheLottery({ value: lotteryEntranceFee })
+                  await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
+                  await network.provider.request({ method: "evm_mine", params: [] })
+                  const tx = await lottery.performUpkeep("0x")
+                  assert(tx)
+              })
+              it("Revert if checkUpKeep is not true", async () => {
+                  await expect(lottery.performUpkeep("0x")).to.be.revertedWith("Raffle__UpkeepNotNeeded")
+              })
+              it("Update the lottery state", async () => {
+                  await lottery.enterTheLottery({ value: lotteryEntranceFee })
+                  await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
+                  await network.provider.request({ method: "evm_mine", params: [] })
+                  const trxResponse = await lottery.performUpkeep("0x")
+                  const trxReceipt = await trxResponse.wait(1)
+                  const lotteryState = await lottery.getLotteryState()
+                  assert(lotteryState == 1)
+              })
+          })
+          describe("FullFillRandomWords", async () => {
+              beforeEach(async () => {
+                  await lottery.enterTheLottery({ value: lotteryEntranceFee })
+                  await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
+                  await network.provider.request({ method: "evm_mine", params: [] })
+              })
+              it("Could only be called after PerformUpKeep", async () => {
+                  await expect(VRFCoordinatorV2Mock.fulfillRandomWords(0, lottery.address)).to.be.revertedWith(
+                      "nonexistent request"
+                  )
+                  await expect(VRFCoordinatorV2Mock.fulfillRandomWords(1, lottery.address)).to.be.revertedWith(
+                      "nonexistent request"
+                  )
+              })
+              it("Picks winner,resets,send money", async () => {
+                  const additionalEntrants = 3
+                  const startingAccountIndex = 2 // deployer = 0
+                  for (let i = startingAccountIndex; i < startingAccountIndex + additionalEntrants; i++) {
+                      const accountConnectedLottery = lottery.connect(accounts[i])
+                      await accountConnectedLottery.enterTheLottery({ value: lotteryEntranceFee })
+                  }
+                  const startingTimeStamp = await lottery.getLastTimeStamp()
+                  await new Promise(async (resolve, reject) => {
+                      lottery.once("WinnerPicked", async () => {
+                          try {
+                              const recentWinner = await lottery.getRecentWinner() //acc[2]
+                              const lotteryState = await lottery.getLotteryState()
+                              const endingTimeStamp = await lottery.getLastTimeStamp()
+                              const numPlayers = await lottery.getNumberOfPlayers()
+                              const winnerEndingBalance = await accounts[2].getBalance()
+                              assert.equal(numPlayers.toString(), "0")
+                              assert.equal(lotteryState.toString(), "0")
+                              assert(endingTimeStamp > startingTimeStamp)
+                              assert.equal(
+                                  winnerEndingBalance.toString(),
+                                  winnerStartingBalance.add(
+                                      lotteryEntranceFee.mul(additionalEntrants).add(lotteryEntranceFee).toString()
+                                  )
+                              )
+                              resolve()
+                          } catch (e) {
+                              reject(e)
+                          }
+                      })
                       const tx = await lottery.performUpkeep("0x")
-                      assert(tx)
-                  })
-                  it("Revert if checkUpKeep is not true", async () => {
-                      await expect(lottery.performUpkeep("0x")).to.be.revertedWith("Raffle__UpkeepNotNeeded")
-                  })
-                  it("Update the lottery state", async () => {
-                      await lottery.enterTheLottery({ value: lotteryEntranceFee })
-                      await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
-                      await network.provider.request({ method: "evm_mine", params: [] })
-                      const trxResponse = await lottery.performUpkeep("0x")
-                      const trxReceipt = await trxResponse.wait(1)
-                      const lotteryState = await lottery.getLotteryState()
-                      assert(lotteryState == 1)
+                      const txReceipt = await tx.wait(1)
+                      const winnerStartingBalance = await accounts[2].getBalance()
+                      await VRFCoordinatorV2Mock.fulfillRandomWords(txReceipt.events[1].args.requestId, lottery.address)
                   })
               })
           })
