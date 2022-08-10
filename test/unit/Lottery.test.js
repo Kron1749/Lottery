@@ -45,4 +45,60 @@ const { developmentChains } = require("../../helper-hardhat-config")
                   assert.equal(deployer.address, player.address)
               })
           })
+          describe("CheckUpKeep", async () => {
+              it("Returns false if time hasn't passed", async () => {
+                  await lottery.enterTheLottery({ value: lotteryEntranceFee })
+                  const { upkeepNeeded } = lottery.callStatic.checkUpkeep("0x") // Use callStatic only to execute this trx
+                  assert.notEqual(upkeepNeeded, true)
+              })
+              it("Returns false if no players", async () => {
+                  await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
+                  await network.provider.request({ method: "evm_mine", params: [] })
+                  const { upkeepNeeded } = lottery.callStatic.checkUpkeep("0x") // Use callStatic only to execute this trx
+                  assert.notEqual(upkeepNeeded, true)
+              })
+              it("Returns false if lottery state is't open", async () => {
+                  await lottery.enterTheLottery({ value: lotteryEntranceFee })
+                  await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
+                  await network.provider.request({ method: "evm_mine", params: [] })
+                  await lottery.performUpkeep([])
+                  const lotteryState = await lottery.getLotteryState()
+                  const { upkeepNeeded } = await lottery.callStatic.checkUpkeep("0x") // upkeepNeeded = (timePassed && isOpen && hasBalance && hasPlayers)
+                  assert.equal(lotteryState.toString() == "1", upkeepNeeded == false)
+              })
+              it("Returns false if lottery has no balance", async () => {
+                  await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
+                  await network.provider.request({ method: "evm_mine", params: [] })
+                  const { upkeepNeeded } = lottery.callStatic.checkUpkeep("0x") // Use callStatic only to execute this trx
+                  assert.notEqual(upkeepNeeded, true)
+              })
+              it("Returns true if everything is okay", async () => {
+                  await lottery.enterTheLottery({ value: lotteryEntranceFee })
+                  await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
+                  await network.provider.request({ method: "evm_mine", params: [] })
+                  const { upkeepNeeded } = lottery.callStatic.checkUpkeep("0x")
+                  assert.notEqual(upkeepNeeded, false)
+              })
+              describe("PerformUpKeep", async () => {
+                  it("Runs if checkUpKeep is true", async () => {
+                      await lottery.enterTheLottery({ value: lotteryEntranceFee })
+                      await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
+                      await network.provider.request({ method: "evm_mine", params: [] })
+                      const tx = await lottery.performUpkeep("0x")
+                      assert(tx)
+                  })
+                  it("Revert if checkUpKeep is not true", async () => {
+                      await expect(lottery.performUpkeep("0x")).to.be.revertedWith("Raffle__UpkeepNotNeeded")
+                  })
+                  it("Update the lottery state", async () => {
+                      await lottery.enterTheLottery({ value: lotteryEntranceFee })
+                      await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
+                      await network.provider.request({ method: "evm_mine", params: [] })
+                      const trxResponse = await lottery.performUpkeep("0x")
+                      const trxReceipt = await trxResponse.wait(1)
+                      const lotteryState = await lottery.getLotteryState()
+                      assert(lotteryState == 1)
+                  })
+              })
+          })
       })

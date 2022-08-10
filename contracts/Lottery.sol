@@ -75,11 +75,6 @@ contract Lottery is VRFConsumerBaseV2, KeeperCompatibleInterface {
         s_players.push(msg.sender);
     }
 
-    function findTheWinner() public {
-        uint256 index = s_randomWords[0] % s_players.length;
-        payable(s_players[index]).transfer(address(this).balance);
-    }
-
     function checkUpkeep(
         bytes memory /* checkData */
     )
