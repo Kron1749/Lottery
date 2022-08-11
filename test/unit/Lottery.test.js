@@ -4,7 +4,7 @@ const { developmentChains } = require("../../helper-hardhat-config")
 
 !developmentChains.includes(network.name)
     ? describe.skip
-    : describe("Lottery", async () => {
+    : describe("Lottery Unit Tests", async () => {
           let lottery
           let deployer
           let accounts
@@ -90,9 +90,6 @@ const { developmentChains } = require("../../helper-hardhat-config")
                   await network.provider.request({ method: "evm_mine", params: [] })
                   const tx = await lottery.performUpkeep("0x")
                   assert(tx)
-              })
-              it("Revert if checkUpKeep is not true", async () => {
-                  await expect(lottery.performUpkeep("0x")).to.be.revertedWith("Raffle__UpkeepNotNeeded")
               })
               it("Update the lottery state", async () => {
                   await lottery.enterTheLottery({ value: lotteryEntranceFee })

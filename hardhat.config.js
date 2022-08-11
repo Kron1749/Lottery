@@ -21,7 +21,7 @@ module.exports = {
             url: RINKEBY_RPC_URL,
             accounts: [PRIVATE_KEY],
             chainId: 4,
-            blockConfirmations: 6,
+            saveDeployments: true,
         },
     },
     solidity: {
@@ -31,7 +31,7 @@ module.exports = {
                 settings: {
                     optimizer: {
                         enabled: true,
-                        runs: 10,
+                        runs: 100,
                     },
                 },
             },
@@ -40,7 +40,7 @@ module.exports = {
                 settings: {
                     optimizer: {
                         enabled: true,
-                        runs: 10,
+                        runs: 100,
                     },
                 },
             },
@@ -61,8 +61,11 @@ module.exports = {
             default: 0,
             1: 0,
         },
+        player: {
+            default: 1,
+        },
     },
     mocha: {
-        timeout: 300000,
+        timeout: 500000,
     },
 }
